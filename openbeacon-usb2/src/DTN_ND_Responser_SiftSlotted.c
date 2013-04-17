@@ -548,11 +548,11 @@ void plugged (void){
  *
  */
 static float
-SiftDistribution(uint8_t r, uint8_t CW, float alfa)
+SiftDistribution(uint8_t r, float alfa, uint8_t CW)
 {
-	float sif = (((1.0-alfa)*pow(alfa, CW))/(1-pow(alfa, CW)))*pow(alfa,-r);
-	logDataStorage(33, sif*1000, 0x3333, 6666, sif*100);
-	return sif;
+
+	return (((1.0-alfa)*pow(alfa, CW))/(1.0-pow(alfa, CW)))*pow(alfa,-r);
+	//logDataStorage(33, sif*100, 0x3333, 6666, sif*100);
 }
 
 /*
@@ -588,8 +588,9 @@ void logDataStorage(uint32_t time1, uint32_t time2, uint32_t seq, uint16_t from,
 void NDResAlgorithm (uint32_t seq) {
 
 	uint16_t s=0; //,r;
+	uint8_t slot=1;
 	uint8_t CW= 30;
-	float alfa=0.9;
+	float alfa=0.7;
 	float sift = 0;
 
 	uint32_t probT; // probability treshold
@@ -617,26 +618,28 @@ void NDResAlgorithm (uint32_t seq) {
 		{	//se occupato
 			pmu_sleep_ms (8);
 			s=s+10;
+			slot++;
 			continue;
 		}
 		else
 		{
 			// calculate the treshold val for this slot
-			sift = SiftDistribution((s+10.0)/10.0, alfa, CW);
-			probT = sift*100;//((CW-sift)/CW)*100;
+			sift = SiftDistribution(slot, alfa, CW);
+			probT = (sift*100)*2.5 + 5;//  SIFT*SPREAD + BASE
 			uint32_t rnd_m = rnd(100);
 			//logDataStorage(2222, sift, rnd_m, 6666, 0);
 			if (rnd_m<=probT) // mod DanAme 20 testbed con 10 e 40
 			{ // Qui il valore P del pPersistent
-				logDataStorage(s, rnd_m, 0x2222, 6666, probT);
+				logDataStorage(s, slot, 0x2222, 6666, probT);
 				sendBackNDRes(s, seq);
 				break;
 			}
 			else
 			{
-				logDataStorage(s, rnd_m, 0x3333, 6666, sift*100);
+				logDataStorage(s, rnd_m, 0x3333, 6666, probT);
 				pmu_sleep_ms (8);
 				s=s+10;
+				slot++;
 			}
 		}//else
 	}//while s<300
@@ -850,4 +853,4 @@ main (void)
 	}
 
 	return 0;
-}// RES slotted
+}// RES slottedSift
