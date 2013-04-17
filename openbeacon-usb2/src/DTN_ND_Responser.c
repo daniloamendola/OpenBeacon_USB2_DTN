@@ -566,7 +566,7 @@ void logDataStorage(uint32_t time1, uint32_t time2, uint32_t seq, uint16_t from,
  */
 void NDResAlgorithm (uint32_t seq) {
 
-	uint16_t s=0,r;
+	uint16_t s=0;//,r;
 	//GPIOSetValue (1, 1, 1); // accende led1
 	//r=rnd(10);
 	//pmu_sleep_ms (r*10);

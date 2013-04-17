@@ -550,7 +550,6 @@ void plugged (void){
 static float
 SiftDistribution(uint8_t r, float alfa, uint8_t CW)
 {
-
 	return (((1.0-alfa)*pow(alfa, CW))/(1.0-pow(alfa, CW)))*pow(alfa,-r);
 	//logDataStorage(33, sif*100, 0x3333, 6666, sif*100);
 }
@@ -630,13 +629,13 @@ void NDResAlgorithm (uint32_t seq) {
 			//logDataStorage(2222, sift, rnd_m, 6666, 0);
 			if (rnd_m<=probT) // mod DanAme 20 testbed con 10 e 40
 			{ // Qui il valore P del pPersistent
-				logDataStorage(s, slot, 0x2222, 6666, probT);
 				sendBackNDRes(s, seq);
+				logDataStorage(s, slot, 0x2222, 6666, probT);
 				break;
 			}
 			else
 			{
-				logDataStorage(s, rnd_m, 0x3333, 6666, probT);
+				//logDataStorage(s, rnd_m, 0x3333, 6666, probT);
 				pmu_sleep_ms (8);
 				s=s+10;
 				slot++;
