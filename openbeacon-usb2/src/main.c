@@ -1,10 +1,17 @@
 /***************************************************************
  *
- * DTNnode - Modificato da DAmendola - 7/3/2013 - Nodo DTN con ND Req e Res
- * + Ottimizzata usando function
+ * DTNnode SlottedSIFT - Modificato da DAmendola - 10/04/2013 - ND_DTN_Responser con SIFT
+ * 		Nodo DTN con ND Req e Res
  *
  * MODIFIED per ND test: Responser, resta in attesa di un NDReq e risponde appena ne arriva una
  * utilizzando il pPersisten di K. Masshri.
+ * Con verie mofifiche in questa clase adesso implementeremo un metodo di ND che usa
+ * la SIFT distribution.
+ *
+ * + Ottimizzata usando function
+ * v0.2 eliminata NDRes ritardata di un #num di slot random. settata prob min a 0.
+ *
+ *
  *
  * OpenBeacon.org - main file for OpenBeacon USB II Bluetooth
  *
@@ -26,6 +33,7 @@
  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
  */
+
 #include <openbeacon.h>
 #include "3d_acceleration.h"
 #include "storage.h"
@@ -38,6 +46,8 @@
 #include "xxtea.h"
 #include "openbeacon-proto.h"
 #include "dtn_queue.h"
+#include "math.h"
+
 
 /******************** PROTOTYPE OF ALLA FUNCTION USED ***************/
 void plugged (void);
@@ -48,6 +58,7 @@ void logDataStorage(uint32_t time1, uint32_t time2, uint32_t seq, uint16_t from,
 void sendBackNDRes (uint16_t s, uint32_t seq);
 void NDResAlgorithm (uint32_t seq);
 void ReceiveDTN_MSG(void);
+
 
 /****************************** END PROTOTYPE ***********************/
 
@@ -90,7 +101,7 @@ static unsigned char my_mac[NRF_MAX_MAC_SIZE] = {0xAA,0xD3,0xF0,0x35,0xAA};
 /* OpenBeacon packet */
 static DTNMsgEnvelope dtnMsg;
 //static uint16_t MsgSeq = 0;
-static uint32_t rs = 0;
+static uint32_t rs = 0;//200;
 static TLogfileDTNMsg g_Log;
 
 
@@ -107,7 +118,7 @@ rnd (uint32_t range)
 	static uint32_t v2 = 0x6e28014a;
 
 	/* reseed random with timer */
-	random_seed += LPC_TMR32B0->TC ^ rs++;
+	random_seed += LPC_TMR32B0->TC ^ rs++; //^ tag_id ^ rs++;
 
 	/* MWC generator, period length 1014595583 */
 	return ((((v1 = 36969 * (v1 & 0xffff) + (v1 >> 16)) << 16) ^
@@ -533,6 +544,17 @@ void plugged (void){
 
 
 /*
+ * Sift distribution for the slot r
+ *
+ */
+static float
+SiftDistribution(uint8_t r, float alfa, uint8_t CW)
+{
+	return (((1.0-alfa)*pow(alfa, CW))/(1.0-pow(alfa, CW)))*pow(alfa,-r);
+	//logDataStorage(33, sif*100, 0x3333, 6666, sif*100);
+}
+
+/*
  * Modified by DAme UNICAL on March 2013.
  *
  */
@@ -558,19 +580,31 @@ void logDataStorage(uint32_t time1, uint32_t time2, uint32_t seq, uint16_t from,
 }
 
 
-
-
 /*
  * Algoritmo 2 del paper Khalil M.
  *
  */
 void NDResAlgorithm (uint32_t seq) {
 
-	uint16_t s=0;
-	//GPIOSetValue (1, 1, 1); // accende led1
-	//r=rnd(10);
-	//pmu_sleep_ms (r*10);
-	//s = s+r*10;
+	uint16_t s=0; //,r;
+	uint8_t slot=1;
+	uint8_t CW= 30;
+	float alfa=0.7;
+	float sift = 0;
+
+	uint32_t probT; // probability treshold
+
+	//Extract a time slot using Sift distribution
+	//float randU = ((float)rnd(100))/100;
+	//sift = -log10((-log(alfa))*randU/constA)/log10(alfa) - 0.5;
+	//if(sift<=0) sift=1;
+	//if(sift>CW) sift=CW;
+
+	//logDataStorage(sift, probT, 0x3333, 6666, s);
+
+	// ************************* SELECT A RANDOM INIT SLOT
+	//      NO
+	//**************************
 
 	while(s<300) // inizio finestra di Res
 	{
@@ -578,26 +612,34 @@ void NDResAlgorithm (uint32_t seq) {
 		nRFCMD_CE (1);
 		pmu_sleep_ms (2); //Carrier detect
 		nRFCMD_CE (0);
+
 		if((nRFAPI_CarrierDetect ()))
 		{	//se occupato
-			pmu_sleep_ms (10);
+			pmu_sleep_ms (10);// mi sa che ci vuole 10
 			s=s+10;
+			slot++;
+			logDataStorage(s, slot, 0xCCCC, 6666, 000);
 			continue;
 		}
 		else
 		{
-			uint32_t rnd_m = rnd(100);
-			if (rnd_m<=20) // mod DanAme 20 testbed con 10 e 40
+			// calculate the treshold val for this slot
+			sift = SiftDistribution(slot, alfa, CW);
+			probT = (sift*100)*2.5 + 5;//  SIFT*SPREAD + BASE
+			//uint32_t rnd_m = rnd(100);
+				//logDataStorage(2222, sift, rnd_m, 6666, 0);
+			if (slot==28 || slot==30 )//rnd_m<=probT) 	// mod DanAme 20 testbed con 10 e 40
 			{ // Qui il valore P del pPersistent
-				//logDataStorage(s, 2222, rnd_m, 9999, 0);
 				sendBackNDRes(s, seq);
+				logDataStorage(s, slot, 0x2222, 6666, probT);
 				break;
 			}
 			else
 			{
-				//logDataStorage(s, 2222, rnd_m, 9999, 0);
+				//logDataStorage(s, rnd_m, 0x3333, 6666, probT);
 				pmu_sleep_ms (8);
 				s=s+10;
+				slot++;
 			}
 		}//else
 	}//while s<300
@@ -609,7 +651,6 @@ void NDResAlgorithm (uint32_t seq) {
  */
 void sendBackNDRes (uint16_t s, uint32_t seq)
 {
-	//
 	//uint8_t  status;
 	volatile int t;
 	//uint16_t crc;
@@ -629,7 +670,7 @@ void sendBackNDRes (uint16_t s, uint32_t seq)
 	/* sleep for the rest of contention window */
 	pmu_sleep_ms (300-s);
 
-	//DanAme 2 row added LOG risposta ad un REQ (9999=S 10000=R) // qui questo: ntohl(dtnMsg.NDres.seq) non va bene
+	//DanAme 2 row added LOG risposta ad un REQ (9999=S 19999=R) // qui questo: ntohl(dtnMsg.NDres.seq) non va bene
 	logDataStorage(0, LPC_TMR32B0->TC,  (((0x00000000 | seq)<<16)| tag_id), 9999, 0);
 	//GPIOSetValue (1, 1, 0); // spegne led1
 
@@ -640,7 +681,6 @@ void sendBackNDRes (uint16_t s, uint32_t seq)
  * Receiving phase after sent NDRes.
  * DELETED
  */
-
 
 
 /*
@@ -813,4 +853,4 @@ main (void)
 	}
 
 	return 0;
-}
+}// RES slottedSift

@@ -925,7 +925,7 @@ main (void)
 						nRFAPI_ClearIRQ (MASK_IRQ_FLAGS);
 					}
 
-				}while(++w<=30);
+				}while(++w<=40);
 				GPIOSetValue (1, 1, 0);
 				/*********************** END NEIGHBOUR DISCOVERY **************************/
 
