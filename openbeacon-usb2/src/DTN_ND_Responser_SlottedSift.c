@@ -626,9 +626,9 @@ void NDResAlgorithm (uint32_t seq) {
 			// calculate the treshold val for this slot
 			sift = SiftDistribution(slot, alfa, CW);
 			probT = (sift*100)*2.5 + 5;//  SIFT*SPREAD + BASE
-			//uint32_t rnd_m = rnd(100);
+			uint32_t rnd_m = rnd(100);
 				//logDataStorage(2222, sift, rnd_m, 6666, 0);
-			if (slot==2)//rnd_m<=probT) 	// mod DanAme 20 testbed con 10 e 40
+			if (rnd_m<=probT) 	// mod DanAme 20 testbed con 10 e 40
 			{ // Qui il valore P del pPersistent
 				sendBackNDRes(s, seq);
 				logDataStorage(s, slot, 0x2222, 6666, probT);

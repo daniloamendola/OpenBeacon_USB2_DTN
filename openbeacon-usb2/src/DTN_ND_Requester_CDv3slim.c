@@ -1,17 +1,9 @@
 /***************************************************************
  *
- * DTNnode SlottedSIFT - Modificato da DAmendola - 10/04/2013 - ND_DTN_Responser con SIFT
- * 		Nodo DTN con ND Req e Res
- *
- * MODIFIED per ND test: Responser, resta in attesa di un NDReq e risponde appena ne arriva una
- * utilizzando il pPersisten di K. Masshri.
- * Con verie mofifiche in questa clase adesso implementeremo un metodo di ND che usa
- * la SIFT distribution.
- *
+ * DTNnode - Modificato da DAmendola - 7/3/2013 - Nodo DTN con ND Req e Res
  * + Ottimizzata usando function
- * v0.2 eliminata NDRes ritardata di un #num di slot random. settata prob min a 0.
  *
- *
+ * MODIFIED per ND test: Requester, manda una NDReq e registra i vicini trovati.
  *
  * OpenBeacon.org - main file for OpenBeacon USB II Bluetooth
  *
@@ -33,7 +25,6 @@
  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
  */
-
 #include <openbeacon.h>
 #include "3d_acceleration.h"
 #include "storage.h"
@@ -46,19 +37,17 @@
 #include "xxtea.h"
 #include "openbeacon-proto.h"
 #include "dtn_queue.h"
-#include "math.h"
-
 
 /******************** PROTOTYPE OF ALLA FUNCTION USED ***************/
-void plugged (void);
-void logDataStorage(uint32_t time1, uint32_t time2, uint32_t seq, uint16_t from,
+static void plugged (void);
+static void logDataStorage(uint32_t time1, uint32_t time2, uint32_t seq, uint16_t from,
 		uint8_t prop);
 		//, uint16_t crc, uint16_t data, uint8_t proto, uint8_t temp, uint16_t info
 
-void sendBackNDRes (uint16_t s, uint32_t seq, uint8_t slot);
-void NDResAlgorithm (uint32_t seq);
-void ReceiveDTN_MSG(void);
-
+//static void sendBackNDRes (uint16_t s);
+//static void NDResAlgorithm (void);
+//static void ReceiveDTN_MSG(void);
+//static void blinkShort (uint8_t times);
 
 /****************************** END PROTOTYPE ***********************/
 
@@ -101,7 +90,7 @@ static unsigned char my_mac[NRF_MAX_MAC_SIZE] = {0xAA,0xD3,0xF0,0x35,0xAA};
 /* OpenBeacon packet */
 static DTNMsgEnvelope dtnMsg;
 //static uint16_t MsgSeq = 0;
-static uint32_t rs = 0;//200;
+//static uint32_t rs = 0;
 static TLogfileDTNMsg g_Log;
 
 
@@ -111,19 +100,19 @@ static QueueRecord *Q = &sa;
 /*
  * Prende in input un range e restitutisce un numero random.
  */
-static uint32_t
-rnd (uint32_t range)
-{
-	static uint32_t v1 = 0x52f7d319;
-	static uint32_t v2 = 0x6e28014a;
-
-	/* reseed random with timer */
-	random_seed += LPC_TMR32B0->TC ^ rs++; //^ tag_id ^ rs++;
-
-	/* MWC generator, period length 1014595583 */
-	return ((((v1 = 36969 * (v1 & 0xffff) + (v1 >> 16)) << 16) ^
-			(v2 = 30963 * (v2 & 0xffff) + (v2 >> 16))) ^ random_seed) % range;
-}
+//static uint32_t
+//rnd (uint32_t range)
+//{
+//	static uint32_t v1 = 0x52f7d319;
+//	static uint32_t v2 = 0x6e28014a;
+//
+//	/* reseed random with timer */
+//	random_seed += LPC_TMR32B0->TC ^ rs++;
+//
+//	/* MWC generator, period length 1014595583 */
+//	return ((((v1 = 36969 * (v1 & 0xffff) + (v1 >> 16)) << 16) ^
+//			(v2 = 30963 * (v2 & 0xffff) + (v2 >> 16))) ^ random_seed) % range;
+//}
 
 
 /*
@@ -440,6 +429,24 @@ blink (uint8_t times)
 	pmu_sleep_ms (500);
 }
 
+/*
+ * Blink the led.
+ */
+void
+blinkShort (uint8_t times)
+{
+	while (times)
+	{
+		times--;
+
+		GPIOSetValue (1, 1, 1);
+		pmu_sleep_ms (100);
+		GPIOSetValue (1, 1, 0);
+		pmu_sleep_ms (50);
+	}
+	pmu_sleep_ms (50);
+}
+
 
 inline void checkSleepForever(void){
 
@@ -469,7 +476,7 @@ inline void checkSleepForever(void){
 /*
  * IF Plugged to computer upon reset ?
  */
-void plugged (void){
+static void plugged (void){
 	uint8_t cmd_buffer[64], cmd_pos, c;
 	uint8_t i;
 	uint8_t volatile *uart;
@@ -544,29 +551,17 @@ void plugged (void){
 
 
 /*
- * Sift distribution for the slot r
- *
- */
-static float
-SiftDistribution(uint8_t r, float alfa, uint8_t CW)
-{
-	return (((1.0-alfa)*pow(alfa, CW))/(1.0-pow(alfa, CW)))*pow(alfa,-r);
-	//logDataStorage(33, sif*100, 0x3333, 6666, sif*100);
-}
-
-/*
  * Modified by DAme UNICAL on March 2013.
  *
  */
-void logDataStorage(uint32_t time1, uint32_t time2, uint32_t seq, uint16_t from,
+static void logDataStorage(uint32_t time1, uint32_t time2, uint32_t seq, uint16_t from,
 		uint8_t prop){
-	//unsigned char c = {'m','l','p','o','i','u','y','t','r','a'};
+
 	g_Log.time1 = time1;
 	g_Log.time2 = time2;// ci andrebbe msg.time
 	g_Log.seq = seq;
 	g_Log.from = from; //msg.from
 	g_Log.prop = prop;
-	//g_Log.data = &c;
 
 	g_Log.crc = crc8 (((uint8_t *) & g_Log),sizeof (g_Log) - sizeof (g_Log.crc));
 	//g_Log.crc = crc;
@@ -584,98 +579,127 @@ void logDataStorage(uint32_t time1, uint32_t time2, uint32_t seq, uint16_t from,
  * Algoritmo 2 del paper Khalil M.
  *
  */
-void NDResAlgorithm (uint32_t seq) {
-
-	uint16_t s=0; //,r;
-	uint8_t slot=1;
-	uint8_t CW= 10;
-	float alfa=0.7;
-	float sift = 0;
-
-	uint32_t probT; // probability treshold
-
-	//Extract a time slot using Sift distribution
-	//float randU = ((float)rnd(100))/100;
-	//sift = -log10((-log(alfa))*randU/constA)/log10(alfa) - 0.5;
-	//if(sift<=0) sift=1;
-	//if(sift>CW) sift=CW;
-
-	//logDataStorage(sift, probT, 0x3333, 6666, s);
-
-	// ************************* SELECT A RANDOM INIT SLOT
-	//      NO
-	//**************************
-	nRFAPI_SetRxMode(1);
-	nRFCMD_CE (1);
-	pmu_sleep_ms (2); //Carrier detect
-	nRFCMD_CE (0);
-
-	if((nRFAPI_CarrierDetect()))
-	{	//se occupato
-		pmu_sleep_ms (20);// mi sa che ci vuole 10
-		s=s+20;
-		slot++;
-		logDataStorage(s, slot, 0xCCC1, 6666, 000);
-	}
-
-	while(s<200) // inizio finestra di Res
-	{
-			// calculate the treshold val for this slot
-			sift = SiftDistribution(slot, alfa, CW);
-			probT = (sift*100)*2.5 + 5;//  SIFT*SPREAD + BASE
-			uint32_t rnd_m = rnd(100);
-				//logDataStorage(2222, sift, rnd_m, 6666, 0);
-			if (rnd_m<=0.2) 	// mod DanAme 20 testbed con 10 e 40
-			{
-				sendBackNDRes(s, seq, slot);
-				logDataStorage(s, slot, 0x2222, 6666, probT);
-				break;
-			}
-			else {
-				s=s+20;
-				slot++;
-				pmu_sleep_ms (20);
-			}
-
-	}//while s< 00
-}
+//static void NDResAlgorithm (void) {
+//
+//	uint16_t s=0,r;
+//	uint8_t done = 0;
+//	GPIOSetValue (1, 1, 1); // accende led1
+//	r=rnd(10);
+//	pmu_sleep_ms (r*10);
+//	s = s+r*10;
+//
+//	while(s<300) // inizio finestra di Res
+//	{
+//		nRFAPI_SetRxMode(1);
+//		nRFCMD_CE (1);
+//		pmu_sleep_ms (2); //Carrier detect
+//		nRFCMD_CE (0);
+//		if((nRFAPI_CarrierDetect ()))
+//		{	//se occupato
+//			pmu_sleep_ms (10);
+//			s=s+10;
+//			continue;
+//		}
+//		else if (rnd(100)<=20){ // Qui il valore P del pPersistent
+//			done = 1;
+//			//
+//			sendBackNDRes(s);
+//			break;
+//		}
+//		else
+//		{
+//			pmu_sleep_ms (8);
+//			s=s+10;
+//		}
+//	}//while s<300
+//}
 
 /*
- * SubFase di invio risposta con il NDRes
+ * SubFase di risposta con il NDRes
  *
  */
-void sendBackNDRes (uint16_t s, uint32_t seq, uint8_t slot)
-{
-	//uint8_t  status;
-	volatile int t;
-	//uint16_t crc;
-
-	bzero (&dtnMsg, sizeof (dtnMsg));
-
-	for(t=0;t<5;t++)
-		dtnMsg.NDres.from[t] = my_mac[t];
-	dtnMsg.proto = RFBPROTO_ND_RES;
-	dtnMsg.NDres.time = htonl (LPC_TMR32B0->TC);
-	dtnMsg.NDres.seq = htonl(((0x00000000 | slot)<<16)| tag_id); //htonl(((0x00000000 | tag_id)<<16)| seq) // ho messo slot al posto s
-	dtnMsg.NDres.crc = htons (crc16(dtnMsg.byte, sizeof (dtnMsg) - sizeof (dtnMsg.NDres.crc)));
-	nRFAPI_SetRxMode(0);
-	//	nRFCMD_CmdExec (W_TX_PAYLOAD_NOACK);
-	nRF_tx (TX_POWER);
-
-	/* sleep for the rest of contention window */
-	//pmu_sleep_ms (300-s);
-
-	//DanAme 2 row added LOG risposta ad un REQ (9999=S 19999=R) // qui questo: ntohl(dtnMsg.NDres.seq) non va bene
-	logDataStorage(s, LPC_TMR32B0->TC,  (((0x00000000 | seq) << 16) | tag_id), 9999, 0); // invece di s seq
-	//GPIOSetValue (1, 1, 0); // spegne led1
-
-	// switch to my_mac for unicast receiving......
-}//send back NDReq
+//static void sendBackNDRes (uint16_t s)
+//{
+//	//
+//	//uint8_t  status;
+//	volatile int t;
+//	//uint16_t crc;
+//	//
+//
+//	bzero (&dtnMsg, sizeof (dtnMsg));
+//	for(t=0;t<5;t++)
+//		dtnMsg.NDres.from[t] = my_mac[t];
+//
+//	dtnMsg.proto = RFBPROTO_ND_RES;
+//	dtnMsg.NDres.time= htonl (LPC_TMR32B0->TC);
+//	dtnMsg.NDres.crc = htons (crc16(dtnMsg.byte, sizeof (dtnMsg) - sizeof (dtnMsg.NDres.crc)));
+//	nRFAPI_SetRxMode(0);
+//	//	nRFCMD_CmdExec (W_TX_PAYLOAD_NOACK);
+//	nRF_tx (1);
+//
+//	/* sleep for the rest of contention window*/
+//	pmu_sleep_ms (300-s);
+//	GPIOSetValue (1, 1, 0); // spegne led1
+//
+//	// switch to my_mac for unicast receiving......
+//}//send back NDReq
 
 /*
  * Receiving phase after sent NDRes.
- * DELETED
+ *
  */
+//static void ReceiveDTN_MSG(void){
+//
+//	/******************* ALTRA FASE? **************/
+//	/********** RICEZIONE DNT_MSG DOPO W **********/
+//
+//	//
+//	uint8_t  status;
+//	uint16_t crc;
+//	//
+//
+//	// switch to my_mac for unicast receiving......
+//	//nRFAPI_SetRxMAC (my_mac,sizeof(my_mac), 0);
+//
+//	GPIOSetValue (1, 2, 1); // accende led0
+//	nRFAPI_SetRxMode (1);
+//	nRFCMD_CE (1);
+//	pmu_sleep_ms (200);
+//	nRFCMD_CE (0);
+//
+//	GPIOSetValue (1, 2, 0);
+//
+//	//nRFAPI_SetRxMAC (broadcast_mac,sizeof(broadcast_mac), 0);
+//
+//	/**** if there is incomming packet (DTN_MSG) recieve it *******/
+//
+//	if (nRFCMD_IRQ ())
+//	{
+//		do
+//		{
+//			nRFCMD_RegReadBuf (RD_RX_PLOAD, dtnMsg.byte,sizeof (dtnMsg));
+//			xxtea_decode (dtnMsg.block, XXTEA_BLOCK_COUNT, xxtea_key);
+//			crc = crc16 (dtnMsg.byte,sizeof (dtnMsg) - sizeof (dtnMsg.msg.crc));
+//
+//			// se ho ricevuto un DTN_MSG corretto
+//			if (ntohs (dtnMsg.msg.crc) == crc && dtnMsg.proto == RFBPROTO_DTN_MSG)
+//			{
+//				// se non avevo già ricevuto il DTN_MSG lo salvo e log
+//				if(!Contains(Q,dtnMsg.msg.seq))
+//				{
+//					dtnMsg.msg.prop = dtnMsg.msg.prop +1;
+//					Enqueue(dtnMsg.msg,Q);
+//					//Log di un DTNmsg ricevuto
+//					logDataStorage(ntohl(dtnMsg.msg.time), LPC_TMR32B0->TC, ntohl(dtnMsg.msg.seq), ntohs (dtnMsg.msg.from), dtnMsg.msg.prop);
+//				}
+//			}
+//			// get status
+//			status = nRFAPI_GetFifoStatus ();
+//		}
+//		while ((status & FIFO_RX_EMPTY) == 0);
+//	}
+//}//DTN_MSG_Receive
+
 
 
 /*
@@ -687,7 +711,7 @@ main (void)
 	uint32_t SSPdiv;
 	//uint8_t  c, cmd_buffer[64], cmd_pos;
 	uint16_t crc;
-//	uint8_t  status;
+	uint8_t  status;
 	//uint8_t volatile *uart;
 	volatile int t;
 
@@ -745,7 +769,7 @@ main (void)
 	/* initialize power management */
 	pmu_init ();
 
-	//blink (2);
+	blink (2);
 
 	/* Initialize OpenBeacon nRF24L01 interface */
 	if (!nRFAPI_Init(CONFIG_BROADCAST_CHANNEL, broadcast_mac, sizeof (broadcast_mac), 0))
@@ -779,7 +803,7 @@ main (void)
 	uint32_t time;
 //	DTNMsg msg;
 //	DTNMsg* msgp;
-
+	uint16_t seq = 0; // VAR di DanAme
 	time = LPC_TMR32B0->TC;
 
 	// Empty DTNMsgs Queue
@@ -790,55 +814,151 @@ main (void)
 	{
 		checkSleepForever();
 
-		/******** BEGIN Contention phase ***********/
+//		logDataStorage(LPC_TMR32B0->TC, ntohl("RQ"), ntohl(0), ntohl(0), ntohl(0));
+		// DTNMsg generation
+//		if(LPC_TMR32B0->TC - time >= 30)
+//			...
+//		}
 
-		pmu_sleep_ms (2);
-		nRFAPI_SetRxMode (1);
-		nRFCMD_CE (1);
-		pmu_sleep_ms (200+rnd(2000)); // Metto in attesa per la ricezione di messaggi
-		nRFCMD_CE (0);
+		/******** Contention phase ***********/
+
+//		pmu_sleep_ms (2);
+//		nRFAPI_SetRxMode (1);
+//		nRFCMD_CE (1);
+
+
+		pmu_sleep_ms (5000); // Metto in attesa per 5 sec
+
+
+//		nRFCMD_CE (0);
 
 		/**** if there is incomming packet recieve it *******/
-		if (nRFCMD_IRQ ())
-		{ // check whether it is a NDReq or not
-			nRFCMD_RegReadBuf (RD_RX_PLOAD, dtnMsg.byte,sizeof (dtnMsg));
-			xxtea_decode (dtnMsg.block, XXTEA_BLOCK_COUNT, xxtea_key);
-			crc = crc16 (dtnMsg.byte,sizeof (dtnMsg) - sizeof (dtnMsg.msg.crc));
-
-			// Se è un NDreq
-			if (ntohs(dtnMsg.msg.crc) == crc && dtnMsg.proto == RFBPROTO_ND_REQ)
-			{
-				//if(!Contains(Q,dtnMsg.NDreq.seq) ) // se la NDreq non è già arivata
-				//{
-					//seq = dtnMsg.NDreq.seq;
-					//DanAme 2 row added LOG risposta ad un REQ (9999=S 19999=R)
-					logDataStorage(ntohl(dtnMsg.NDreq.time), LPC_TMR32B0->TC, ntohl(dtnMsg.NDreq.seq), 19999, 0);
-
-					// send NDRes during NDRes time Window
-					NDResAlgorithm(ntohl(dtnMsg.NDreq.seq));
-
-					blink(1);
-
-					/*******************  FASE **************/
-					/********** RICEZIONE DNT_MSG DOPO W **********/
-
-					// switch to my_mac for unicast receiving......
-					//nRFAPI_SetRxMAC (my_mac,sizeof(my_mac), 0);
-
-//					ReceiveDTN_MSG();
-//					GPIOSetValue (1, 1, 0);// spegne led
-				//}
-				//else /* already has the msg so sleep and don't disrupt other nodes*/
-				//	pmu_sleep_ms (1);
-			}
-			nRFCMD_CE (0);
-			nRFAPI_ClearIRQ (MASK_IRQ_FLAGS);
-			nRFAPI_FlushRX ();
-		}
-		/***************************** END RES Begin REQ *****************************************/
-
-//		else if (!IsEmpty(Q)) {   // if the queue is not empty sending NDReq
+//		if (nRFCMD_IRQ ())
+//		{ // check whether it is a NDReq or not
 //			...
+//		else
+//		if (!IsEmpty(Q)) {   // if the queue is not empty sending NDReq
+
+		/****** BEGIN NDReq send & listen phase ******/
+			nRFCMD_CE (1);
+			pmu_sleep_ms (2); //Carrier detect
+			nRFCMD_CE (0);
+
+			// Se il canale è libero
+			if ((nRFAPI_CarrierDetect () != 0x01))
+			{
+				/*********************** Se il canale è libero SEND NDReq  **************************/
+
+				//GPIOSetValue (1, 1, 1);
+				bzero (&dtnMsg, sizeof (dtnMsg));
+				//msgp = Front(Q);
+
+				// Genera un NDReq e lo invia
+				dtnMsg.proto = RFBPROTO_ND_REQ;
+				dtnMsg.NDreq.from = htons (tag_id);
+				dtnMsg.NDreq.time= htonl (LPC_TMR32B0->TC);
+				//dtnMsg.NDreq.seq = 0x00000000 | seq;
+				//					htonl(((0x00000000 | tag_id)<<16)| seq)
+				dtnMsg.NDreq.seq =  htonl(((0x00000000 | tag_id)<<16) | ++seq);//| seq msgp->seq;0x00 serve a trasformarlo in esadecimale.
+				dtnMsg.NDreq.crc = htons (crc16(dtnMsg.byte, sizeof (dtnMsg) - sizeof (dtnMsg.NDreq.crc)));
+
+				//DanAme 2 row added LOG invio di una REQ (9999=S 10000=R)t dtnMsg.NDreq.seq
+				logDataStorage(ntohl(0), LPC_TMR32B0->TC, ntohl(dtnMsg.NDreq.seq) , 9999, 0);
+				blink(1);
+
+				nRFAPI_SetRxMode(0);
+				//	nRFCMD_CmdExec (W_TX_PAYLOAD_NOACK);
+				nRF_tx (TX_POWER);  // Sending NDReq
+
+
+				/*********************** END OF SEND NDReq  **************************/
+
+				/*********************** BEGIN NEIGHBOUR DISCOVERY **************************/
+				//collecting neighbors
+				uint8_t N = 0,added, collisions=0;
+				uint16_t w=0;
+				unsigned char Nei[10][5]; // Ad ogni finestra azeriamo la lista dei vicini!
+
+				// AVVIO attesa sul ricevitore per la finestra W
+				do{
+					nRFAPI_SetRxMode (1);
+					nRFCMD_CE (1);
+					pmu_sleep_ms (5); //incomming NDRes time window, must be long to accept first at least
+					nRFCMD_CE (0);
+
+
+					/**** if there is incomming packet recieve it *******/
+					if (nRFCMD_IRQ ())
+					{
+						logDataStorage(w, LPC_TMR32B0->TC, 0x1555, 6666, 0);
+						w=w+2;
+						do
+						{
+							added = 0;
+							//Riceve il messaggio
+							nRFCMD_RegReadBuf (RD_RX_PLOAD, dtnMsg.byte,sizeof (dtnMsg));
+							xxtea_decode (dtnMsg.block, XXTEA_BLOCK_COUNT, xxtea_key);
+							crc = crc16 (dtnMsg.byte,sizeof (dtnMsg) - sizeof (dtnMsg.msg.crc));
+							// Se il msg è una Response valida
+							if (ntohs (dtnMsg.msg.crc) == crc && dtnMsg.proto == RFBPROTO_ND_RES)
+							{
+								//update neighbor
+								for(t=0;t<N;t++)
+									if(Nei[t][0] == dtnMsg.NDres.from[0] && Nei[t][1] == dtnMsg.NDres.from[1] && Nei[t][2] == dtnMsg.NDres.from[2] && Nei[t][3] == dtnMsg.NDres.from[3] && Nei[t][4] == dtnMsg.NDres.from[4])
+									{
+										added = 1;
+										//blinkShort(1);
+									}
+								if(!added) // se non era già presente
+								{
+									for(t=0;t<5;t++)
+										Nei[N][t] = dtnMsg.NDres.from[t];
+									N++;
+									//DanAme 2 row added LOG Ricevuta RES (9999=S 10000=R)
+						//logDataStorage(ntohl(dtnMsg.NDres.time), LPC_TMR32B0->TC, ntohl(dtnMsg.NDres.seq), 19999, N);
+
+									//blinkShort(1);
+									//logDataStorage(LPC_TMR32B0->TC, ntohl(dtnMsg.NDres.time), ntohl(dtnMsg.NDres.seq), ntohs(19999), N);
+									//logDataStorage(LPC_TMR32B0->TC, ntohl(0), ntohl(0), ntohs(2), ntohl(0));//ntohl(dtnMsg.NDres.time)
+								}
+								logDataStorage(ntohl(dtnMsg.NDres.time), LPC_TMR32B0->TC, ntohl(dtnMsg.NDres.seq), 19999, N);
+							}
+							status = nRFAPI_GetFifoStatus ();//???ritorna 1 se la coda FIFO ha ancora elementi
+						}while ((status & FIFO_RX_EMPTY) == 0);
+
+						nRFAPI_ClearIRQ (MASK_IRQ_FLAGS);
+					}
+					else{
+						w=w+5;
+						if( nRFAPI_CarrierDetect())
+							collisions++;
+
+					}//qui**
+//						// Tetativo 3 CD
+
+			//		}//daqui**
+
+					// Tetativo 3 CD
+//					if((nRFAPI_CarrierDetect())){
+//						logDataStorage(w, 0, 0xCD01, 6666, 0);
+//					}
+
+
+				}while(w<=700);
+				//save the num of collisions
+				logDataStorage(0, collisions, 0x00CD, 6666, 0);
+
+
+				GPIOSetValue (1, 1, 0);
+				/*********************** END NEIGHBOUR DISCOVERY **************************/
+
+				/*********************** BEGIN FW POLICY **************************/
+//				if(N) // n!=0 // if find any neighbourd
+//				{
+//					---
+//				}
+			}
+			/****** END NDReq send & listen phase ******/
 //		}
 
 		nRFAPI_ClearIRQ (MASK_IRQ_FLAGS);
@@ -848,4 +968,4 @@ main (void)
 	}
 
 	return 0;
-}// RES v2.0 pPers CW10
+}//CDv3

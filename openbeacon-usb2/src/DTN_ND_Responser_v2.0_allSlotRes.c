@@ -588,7 +588,7 @@ void NDResAlgorithm (uint32_t seq) {
 
 	uint16_t s=0; //,r;
 	uint8_t slot=1;
-	uint8_t CW= 10;
+	uint8_t CW= 30;
 	float alfa=0.7;
 	float sift = 0;
 
@@ -618,26 +618,23 @@ void NDResAlgorithm (uint32_t seq) {
 		logDataStorage(s, slot, 0xCCC1, 6666, 000);
 	}
 
-	while(s<200) // inizio finestra di Res
+	while(s<600) // inizio finestra di Res
 	{
 			// calculate the treshold val for this slot
 			sift = SiftDistribution(slot, alfa, CW);
 			probT = (sift*100)*2.5 + 5;//  SIFT*SPREAD + BASE
-			uint32_t rnd_m = rnd(100);
+			//uint32_t rnd_m = rnd(100);
 				//logDataStorage(2222, sift, rnd_m, 6666, 0);
-			if (rnd_m<=0.2) 	// mod DanAme 20 testbed con 10 e 40
-			{
-				sendBackNDRes(s, seq, slot);
-				logDataStorage(s, slot, 0x2222, 6666, probT);
-				break;
-			}
-			else {
-				s=s+20;
-				slot++;
-				pmu_sleep_ms (20);
-			}
 
-	}//while s< 00
+			sendBackNDRes(s, seq, slot);
+			logDataStorage(s, slot, 0x2222, 6666, probT);
+			//}
+					s=s+20;
+					slot++;
+					pmu_sleep_ms (20);
+
+
+	}//while s<300
 }
 
 /*
@@ -848,4 +845,4 @@ main (void)
 	}
 
 	return 0;
-}// RES v2.0 pPers CW10
+}// RES slottedSift

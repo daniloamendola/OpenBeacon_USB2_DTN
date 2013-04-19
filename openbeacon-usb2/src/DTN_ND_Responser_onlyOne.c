@@ -55,7 +55,7 @@ void logDataStorage(uint32_t time1, uint32_t time2, uint32_t seq, uint16_t from,
 		uint8_t prop);
 		//, uint16_t crc, uint16_t data, uint8_t proto, uint8_t temp, uint16_t info
 
-void sendBackNDRes (uint16_t s, uint32_t seq, uint8_t slot);
+void sendBackNDRes (uint16_t s, uint32_t seq);
 void NDResAlgorithm (uint32_t seq);
 void ReceiveDTN_MSG(void);
 
@@ -588,7 +588,7 @@ void NDResAlgorithm (uint32_t seq) {
 
 	uint16_t s=0; //,r;
 	uint8_t slot=1;
-	uint8_t CW= 10;
+	uint8_t CW= 30;
 	float alfa=0.7;
 	float sift = 0;
 
@@ -605,46 +605,71 @@ void NDResAlgorithm (uint32_t seq) {
 	// ************************* SELECT A RANDOM INIT SLOT
 	//      NO
 	//**************************
-	nRFAPI_SetRxMode(1);
-	nRFCMD_CE (1);
-	pmu_sleep_ms (2); //Carrier detect
-	nRFCMD_CE (0);
 
-	if((nRFAPI_CarrierDetect()))
-	{	//se occupato
-		pmu_sleep_ms (20);// mi sa che ci vuole 10
-		s=s+20;
-		slot++;
-		logDataStorage(s, slot, 0xCCC1, 6666, 000);
-	}
-
-	while(s<200) // inizio finestra di Res
+	while(s<300) // inizio finestra di Res
 	{
+		nRFAPI_SetRxMode(1);
+		nRFCMD_CE (1);
+		pmu_sleep_ms (2); //Carrier detect
+		nRFCMD_CE (0);
+
+		if((nRFAPI_CarrierDetect()))
+		{	//se occupato
+			pmu_sleep_ms (10);// mi sa che ci vuole 10
+			s=s+10;
+			slot++;
+			logDataStorage(s, slot, 0xCCC1, 6666, 000);
+			continue;
+		}
+		else
+		{
 			// calculate the treshold val for this slot
 			sift = SiftDistribution(slot, alfa, CW);
 			probT = (sift*100)*2.5 + 5;//  SIFT*SPREAD + BASE
-			uint32_t rnd_m = rnd(100);
+			//uint32_t rnd_m = rnd(100);
 				//logDataStorage(2222, sift, rnd_m, 6666, 0);
-			if (rnd_m<=0.2) 	// mod DanAme 20 testbed con 10 e 40
-			{
-				sendBackNDRes(s, seq, slot);
-				logDataStorage(s, slot, 0x2222, 6666, probT);
-				break;
-			}
-			else {
-				s=s+20;
-				slot++;
-				pmu_sleep_ms (20);
-			}
+//			if (rnd_m<=probT) 	// mod DanAme 20 testbed con 10 e 40
+//			{ // Qui il valore P del pPersistent
+//				nRFAPI_SetRxMode(1);
+//				nRFCMD_CE (1);
+//				pmu_sleep_ms (5); //Carrier detect
+//				nRFCMD_CE (0);
+//				if((nRFAPI_CarrierDetect())){ //se è BUSY
+//					s=s+10;
+//					slot++;
+//					logDataStorage(s, slot, 0xCCC2, 6666, probT);
+//					pmu_sleep_ms (5);
+//				}
+//				else{
+					sendBackNDRes(s, seq);
+					logDataStorage(s, slot, 0x2222, 6666, probT);
 
-	}//while s< 00
+					s=s+10;
+					slot++;
+					pmu_sleep_ms (8);
+					// break;
+//					pmu_sleep_ms (3);
+//					s=s+10;
+//					slot++;
+
+//				}
+//			}
+//			else
+//			{
+				//logDataStorage(s, rnd_m, 0x3333, 6666, probT);
+//				pmu_sleep_ms (8);
+//				s=s+10;
+//				slot++;
+//			}
+		}//else
+	}//while s<300
 }
 
 /*
  * SubFase di invio risposta con il NDRes
  *
  */
-void sendBackNDRes (uint16_t s, uint32_t seq, uint8_t slot)
+void sendBackNDRes (uint16_t s, uint32_t seq)
 {
 	//uint8_t  status;
 	volatile int t;
@@ -656,7 +681,7 @@ void sendBackNDRes (uint16_t s, uint32_t seq, uint8_t slot)
 		dtnMsg.NDres.from[t] = my_mac[t];
 	dtnMsg.proto = RFBPROTO_ND_RES;
 	dtnMsg.NDres.time = htonl (LPC_TMR32B0->TC);
-	dtnMsg.NDres.seq = htonl(((0x00000000 | slot)<<16)| tag_id); //htonl(((0x00000000 | tag_id)<<16)| seq) // ho messo slot al posto s
+	dtnMsg.NDres.seq = htonl(((0x00000000 | seq)<<16)| tag_id); //htonl(((0x00000000 | tag_id)<<16)| seq)
 	dtnMsg.NDres.crc = htons (crc16(dtnMsg.byte, sizeof (dtnMsg) - sizeof (dtnMsg.NDres.crc)));
 	nRFAPI_SetRxMode(0);
 	//	nRFCMD_CmdExec (W_TX_PAYLOAD_NOACK);
@@ -666,7 +691,7 @@ void sendBackNDRes (uint16_t s, uint32_t seq, uint8_t slot)
 	//pmu_sleep_ms (300-s);
 
 	//DanAme 2 row added LOG risposta ad un REQ (9999=S 19999=R) // qui questo: ntohl(dtnMsg.NDres.seq) non va bene
-	logDataStorage(s, LPC_TMR32B0->TC,  (((0x00000000 | seq) << 16) | tag_id), 9999, 0); // invece di s seq
+	logDataStorage(s, LPC_TMR32B0->TC,  (((0x00000000 | seq)<<16)| tag_id), 9999, 0);
 	//GPIOSetValue (1, 1, 0); // spegne led1
 
 	// switch to my_mac for unicast receiving......
@@ -848,4 +873,4 @@ main (void)
 	}
 
 	return 0;
-}// RES v2.0 pPers CW10
+}// RES slottedSift
