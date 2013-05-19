@@ -625,7 +625,7 @@ void NDResAlgorithm (uint32_t seq) {
 			probT = (sift*100)*2.5 + 5;//  SIFT*SPREAD + BASE
 			uint32_t rnd_m = rnd(100);
 				//logDataStorage(2222, sift, rnd_m, 6666, 0);
-			if (rnd_m<=0.2) 	// mod DanAme 20 testbed con 10 e 40
+			if (rnd_m<=20) 	// mod DanAme 20 testbed con 10 e 40
 			{
 				sendBackNDRes(s, seq, slot);
 				logDataStorage(s, slot, 0x2222, 6666, probT);
